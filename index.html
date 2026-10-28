@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MAL Affinity Explorer - Find Your Anime Taste Soulmates</title>
+    <meta name="description" content="Scrape MyAnimeList users and calculate who has the highest affinity to you using Pearson Correlation.">
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        brand: {
+                            50: '#f0f5ff',
+                            100: '#e5edff',
+                            500: '#2e51a2',
+                            600: '#1d3f8b',
+                            700: '#153272',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <link rel="stylesheet" href="style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen font-['Plus_Jakarta_Sans',sans-serif] selection:bg-blue-600 selection:text-white">
+
+    <!-- Top Navigation Bar -->
+    <header class="border-b border-slate-800/80 bg-slate-900/60 backdrop-blur-md sticky top-0 z-40">
+        <div class="max-w-6xl mx-auto px-4 py-3.5 flex items-center justify-between">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-500 flex items-center justify-center shadow-lg shadow-blue-500/20 font-black text-xl text-white">
+                    MAL
+                </div>
+                <div>
+                    <h1 class="text-lg font-bold tracking-tight text-white flex items-center gap-2">
+                        Affinity Explorer
+                        <span class="text-xs px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/20 font-medium">v1.0</span>
+                    </h1>
+                    <p class="text-xs text-slate-400">Discover MAL users with the highest anime taste affinity</p>
+                </div>
+            </div>
+
+            <div class="flex items-center gap-3">
+                <a href="https://github.com" target="_blank" class="text-xs text-slate-400 hover:text-white flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-800 hover:border-slate-700 bg-slate-900/80 transition">
+                    <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path fill-rule="evenodd" clip-rule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.53 1.032 1.53 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z"></path></svg>
+                    GitHub Repo
+                </a>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Container -->
+    <main class="max-w-6xl mx-auto px-4 py-8 space-y-8">
+
+        <!-- Hero / Input Card -->
+        <div class="relative overflow-hidden rounded-2xl border border-slate-800 bg-slate-900/40 p-6 md:p-8 backdrop-blur-xl shadow-2xl">
+            <div class="absolute -top-24 -right-24 w-80 h-80 bg-blue-600/10 rounded-full blur-3xl pointer-events-none"></div>
+            <div class="absolute -bottom-24 -left-24 w-80 h-80 bg-indigo-600/10 rounded-full blur-3xl pointer-events-none"></div>
+
+            <div class="relative z-10 space-y-6">
+                <div>
+                    <h2 class="text-2xl md:text-3xl font-extrabold text-white tracking-tight">
+                        Find Who Shares Your Anime Taste
+                    </h2>
+                    <p class="text-slate-400 text-sm mt-1">
+                        Calculates official Pearson correlation affinity across mutual ratings, surfaces common favorites, disagreements, and unwatched recommendations.
+                    </p>
+                </div>
+
+                <!-- Input Form -->
+                <div class="grid grid-cols-1 md:grid-cols-12 gap-4 items-end">
+                    <!-- Username -->
+                    <div class="md:col-span-5 space-y-1.5">
+                        <label for="input-username" class="block text-xs font-semibold uppercase tracking-wider text-slate-300">
+                            Your MAL Username
+                        </label>
+                        <div class="relative">
+                            <span class="absolute inset-y-0 left-0 pl-3.5 flex items-center text-slate-500 font-bold">@</span>
+                            <input
+                                id="input-username"
+                                type="text"
+                                placeholder="e.g. Xinil"
+                                class="w-full bg-slate-950/80 border border-slate-700/80 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 text-white rounded-xl pl-9 pr-4 py-3 text-sm transition outline-none"
+                            >
+                        </div>
+                    </div>
+
+                    <!-- Max Candidates N -->
+                    <div class="md:col-span-3 space-y-1.5">
+                        <label for="input-max-users" class="block text-xs font-semibold uppercase tracking-wider text-slate-300">
+                            Max Users to Scan (N)
+                        </label>
+                        <select
+                            id="input-max-users"
+                            class="w-full bg-slate-950/80 border border-slate-700/80 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 text-white rounded-xl px-3 py-3 text-sm transition outline-none cursor-pointer"
+                        >
+                            <option value="15">15 candidates (Fast)</option>
+                            <option value="30" selected>30 candidates (Standard)</option>
+                            <option value="60">60 candidates (Deep)</option>
+                            <option value="120">120 candidates (Thorough)</option>
+                        </select>
+                    </div>
+
+                    <!-- Scan / Stop Buttons -->
+                    <div class="md:col-span-4 flex gap-2">
+                        <button
+                            id="btn-scan"
+                            class="w-full py-3 px-5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold text-sm rounded-xl shadow-lg shadow-blue-600/30 transition transform active:scale-95 flex items-center justify-center gap-2"
+                        >
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                            Find Soulmates
+                        </button>
+                        <button
+                            id="btn-stop"
+                            class="hidden w-full py-3 px-5 bg-red-600 hover:bg-red-500 text-white font-bold text-sm rounded-xl shadow-lg shadow-red-600/30 transition transform active:scale-95 flex items-center justify-center gap-2"
+                        >
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                            Stop Scan
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Advanced & Source Options Accordion -->
+                <details class="group border border-slate-800 rounded-xl bg-slate-950/40 p-4 transition">
+                    <summary class="flex items-center justify-between cursor-pointer text-xs font-semibold text-slate-300 select-none">
+                        <span class="flex items-center gap-2">
+                            <svg class="w-4 h-4 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"></path></svg>
+                            Candidate Discovery Sources & Proxy Settings
+                        </span>
+                        <svg class="w-4 h-4 text-slate-500 group-open:rotate-180 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
+                    </summary>
+
+                    <div class="mt-4 pt-4 border-t border-slate-800/80 space-y-4 text-xs">
+                        <!-- Sources -->
+                        <div>
+                            <span class="block font-semibold text-slate-300 mb-2">Discovery Channels:</span>
+                            <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                                <label class="flex items-center gap-2 p-2.5 rounded-lg border border-slate-800 bg-slate-900/60 cursor-pointer hover:border-slate-700">
+                                    <input type="checkbox" id="check-friends" checked class="rounded border-slate-700 text-blue-600 focus:ring-blue-500">
+                                    <span class="text-slate-300">Your Friends List</span>
+                                </label>
+                                <label class="flex items-center gap-2 p-2.5 rounded-lg border border-slate-800 bg-slate-900/60 cursor-pointer hover:border-slate-700">
+                                    <input type="checkbox" id="check-top-anime" checked class="rounded border-slate-700 text-blue-600 focus:ring-blue-500">
+                                    <span class="text-slate-300">Fans of Your 9-10/10 Anime</span>
+                                </label>
+                                <label class="flex items-center gap-2 p-2.5 rounded-lg border border-slate-800 bg-slate-900/60 cursor-pointer hover:border-slate-700">
+                                    <input type="checkbox" id="check-online" checked class="rounded border-slate-700 text-blue-600 focus:ring-blue-500">
+                                    <span class="text-slate-300">Active Online Users</span>
+                                </label>
+                            </div>
+                        </div>
+
+                        <!-- Custom Candidates Input -->
+                        <div class="space-y-1">
+                            <label class="block font-semibold text-slate-300">
+                                Add Custom Usernames (Optional):
+                            </label>
+                            <input
+                                id="input-custom-candidates"
+                                type="text"
+                                placeholder="Comma or space-separated usernames (e.g. Kineta, Justp94, MickHeal)"
+                                class="w-full bg-slate-900/80 border border-slate-800 rounded-lg p-2.5 text-xs text-white outline-none focus:border-blue-500"
+                            >
+                        </div>
+
+                        <!-- Proxy Configuration -->
+                        <div class="pt-2 border-t border-slate-800 space-y-2">
+                            <div class="flex items-center justify-between">
+                                <span class="font-semibold text-slate-300">CORS Proxy Mode (for MAL API Access):</span>
+                                <button id="btn-test-proxy" type="button" class="text-blue-400 hover:text-blue-300 font-medium underline">
+                                    Test Proxy Connection
+                                </button>
+                            </div>
+                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                <select id="select-proxy" class="w-full bg-slate-900 border border-slate-800 rounded-lg p-2.5 text-xs text-slate-200 outline-none focus:border-blue-500">
+                                    <option value="local" selected>Local Proxy (http://localhost:8000/api/proxy?url=)</option>
+                                    <option value="custom">Custom Cloudflare Worker Proxy</option>
+                                    <option value="direct">Direct Mode (Browser CORS Extension Enabled)</option>
+                                </select>
+                                <div id="container-custom-proxy" class="hidden">
+                                    <input
+                                        id="input-custom-proxy"
+                                        type="text"
+                                        placeholder="https://your-worker.workers.dev/?url="
+                                        class="w-full bg-slate-900 border border-slate-800 rounded-lg p-2.5 text-xs text-white outline-none focus:border-blue-500"
+                                    >
+                                </div>
+                            </div>
+                            <div id="proxy-status" class="text-[11px] text-slate-400"></div>
+                        </div>
+                    </div>
+                </details>
+            </div>
+        </div>
+
+        <!-- Progress Status Card -->
+        <div id="progress-card" class="hidden rounded-xl border border-slate-800 bg-slate-900/60 p-4 backdrop-blur space-y-3">
+            <div class="flex items-center justify-between text-xs">
+                <span id="status-text" class="text-slate-300 font-medium flex items-center gap-2">
+                    <span class="w-2 h-2 rounded-full bg-blue-500 animate-ping"></span>
+                    Initializing scan...
+                </span>
+            </div>
+            <div class="w-full h-2 rounded-full bg-slate-800 overflow-hidden">
+                <div id="progress-bar" class="h-full bg-gradient-to-r from-blue-500 to-indigo-500 transition-all duration-300" style="width: 5%"></div>
+            </div>
+        </div>
+
+        <!-- Leaderboard / Results Table -->
+        <section id="results-section" class="hidden space-y-4">
+            <!-- Filter & Sort Bar -->
+            <div class="flex flex-wrap items-center justify-between gap-4 p-4 rounded-xl border border-slate-800 bg-slate-900/40 backdrop-blur">
+                <!-- Search -->
+                <div class="flex items-center gap-2">
+                    <input
+                        id="input-search"
+                        type="text"
+                        placeholder="Filter by username..."
+                        class="bg-slate-950 border border-slate-800 text-xs rounded-lg px-3 py-2 text-white outline-none focus:border-blue-500 w-44 sm:w-56"
+                    >
+                    <span id="match-count" class="text-xs text-slate-400 font-medium px-2 py-1 bg-slate-800/60 rounded">0 matched</span>
+                </div>
+
+                <!-- Sliders & Selects -->
+                <div class="flex flex-wrap items-center gap-4 text-xs">
+                    <!-- Min Shared -->
+                    <div class="flex items-center gap-2">
+                        <span class="text-slate-400">Min Shared:</span>
+                        <input id="input-min-shared" type="range" min="2" max="50" value="10" class="w-24 accent-blue-500">
+                        <span id="label-min-shared" class="font-bold text-blue-400 w-4">10</span>
+                    </div>
+
+                    <!-- Sort -->
+                    <div class="flex items-center gap-2">
+                        <span class="text-slate-400">Sort By:</span>
+                        <select id="select-sort" class="bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-white outline-none focus:border-blue-500">
+                            <option value="weighted" selected>Weighted Affinity (Best Match)</option>
+                            <option value="affinity">Raw Affinity %</option>
+                            <option value="shared">Most Shared Anime</option>
+                            <option value="diff">Lowest Score Diff (MAE)</option>
+                        </select>
+                    </div>
+
+                    <!-- Export -->
+                    <div class="flex items-center gap-1.5 border-l border-slate-800 pl-4">
+                        <button id="btn-export-json" class="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded text-xs transition">
+                            JSON
+                        </button>
+                        <button id="btn-export-csv" class="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded text-xs transition">
+                            CSV
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Table -->
+            <div class="rounded-xl border border-slate-800 bg-slate-900/40 backdrop-blur overflow-x-auto shadow-xl">
+                <table class="w-full text-left text-sm">
+                    <thead>
+                        <tr class="border-b border-slate-800 bg-slate-950/60 text-xs uppercase tracking-wider text-slate-400 font-semibold">
+                            <th class="py-3 px-4 text-center w-12">#</th>
+                            <th class="py-3 px-4">MAL User</th>
+                            <th class="py-3 px-4 text-center">Affinity</th>
+                            <th class="py-3 px-4 text-center">Weighted Score</th>
+                            <th class="py-3 px-4 text-center">Shared Anime</th>
+                            <th class="py-3 px-4 text-center">Avg Diff</th>
+                            <th class="py-3 px-4 text-center">Inspect</th>
+                        </tr>
+                    </thead>
+                    <tbody id="table-body">
+                        <tr>
+                            <td colspan="7" class="text-center py-12 text-slate-500 text-xs">
+                                Enter your username above and click "Find Soulmates" to evaluate candidates.
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- Informational Footer Guide -->
+        <section class="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs text-slate-400 border-t border-slate-800/80 pt-8">
+            <div class="space-y-2 p-4 rounded-xl border border-slate-800/60 bg-slate-900/20">
+                <h3 class="font-bold text-slate-200 text-sm">📐 How MAL Affinity Works</h3>
+                <p>
+                    Affinity is the mathematical <strong>Pearson correlation coefficient ($r$)</strong> of scores on anime rated $> 0$ by both users.
+                    A score of <strong>+100%</strong> represents identical score changes, <strong>0%</strong> is uncorrelated, and negative values indicate opposing taste.
+                </p>
+                <p>
+                    <strong>Weighted Affinity</strong> applies empirical Bayesian smoothing ($k=15$) to prevent a user with only 2 shared anime from outranking someone with 85% affinity across 200 shared anime.
+                </p>
+            </div>
+            <div class="space-y-2 p-4 rounded-xl border border-slate-800/60 bg-slate-900/20">
+                <h3 class="font-bold text-slate-200 text-sm">🌐 Running on GitHub Pages</h3>
+                <p>
+                    Because MyAnimeList does not enable browser CORS headers, client-side requests from GitHub Pages require a CORS proxy.
+                </p>
+                <p>
+                    You can deploy a <strong>1-click free Cloudflare Worker</strong> (code included in <code>/worker/</code>) or run locally using <code>python server.py</code> for instant zero-config evaluation.
+                </p>
+            </div>
+        </section>
+
+    </main>
+
+    <!-- Deep-Dive Modal -->
+    <div id="modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div id="modal-backdrop" class="fixed inset-0 bg-black/80 backdrop-blur-sm"></div>
+
+        <div class="relative z-10 w-full max-w-2xl max-h-[85vh] rounded-2xl border border-slate-700 bg-slate-900 text-slate-100 shadow-2xl flex flex-col overflow-hidden">
+            <!-- Modal Header -->
+            <div class="p-5 border-b border-slate-800 flex items-center justify-between bg-slate-950/40">
+                <div>
+                    <h3 id="modal-title" class="text-base font-bold text-white"></h3>
+                    <p id="modal-sub" class="text-xs text-slate-400 mt-0.5"></p>
+                </div>
+                <button id="modal-close" class="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                </button>
+            </div>
+
+            <!-- Modal Content (Scrollable) -->
+            <div class="p-5 overflow-y-auto space-y-6">
+                <!-- Shared Favorites -->
+                <div class="space-y-2.5">
+                    <h4 class="text-xs font-bold uppercase tracking-wider text-emerald-400 flex items-center gap-1.5">
+                        <span>🌟</span> Mutual Favorites (Both Rated 8-10)
+                    </h4>
+                    <div id="modal-favs" class="space-y-2"></div>
+                </div>
+
+                <!-- Disagreements -->
+                <div class="space-y-2.5">
+                    <h4 class="text-xs font-bold uppercase tracking-wider text-amber-400 flex items-center gap-1.5">
+                        <span>⚡</span> Biggest Disagreements (Δ >= 2)
+                    </h4>
+                    <div id="modal-disagreements" class="space-y-2"></div>
+                </div>
+
+                <!-- Recommendations -->
+                <div class="space-y-2.5">
+                    <h4 class="text-xs font-bold uppercase tracking-wider text-blue-400 flex items-center gap-1.5">
+                        <span>🎯</span> Recommendations for You (Their Top Anime You Haven't Scored)
+                    </h4>
+                    <div id="modal-recs" class="space-y-2"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="app.js"></script>
+</body>
+</html>
