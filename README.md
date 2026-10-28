@@ -1,6 +1,6 @@
 # 🌌 MAL Affinity Explorer
 
-[![GitHub Pages Deployment](https://img.shields.io/badge/GitHub%20Pages-Live%20Demo-blue?style=for-the-badge&logo=github)](https://slopggobblercobbler81.github.io/mal-affinity-explorer/)
+[![GitHub Pages Deployment](https://img.shields.io/badge/GitHub%20Pages-Live%20Demo-blue?style=for-the-badge&logo=github)](https://slopgobblercobbler.github.io/mal-affinity-explorer/)
 [![Python 3.9+](https://img.shields.io/badge/Python-3.9+-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://python.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge)](LICENSE)
 
@@ -32,7 +32,7 @@ Includes both a **GitHub Pages Single-Page Application (SPA)** and a **Python CL
 ## 🚀 Quick Start (Web App on GitHub Pages)
 
 ### Option A: Use the Live GitHub Pages Site
-1. Open the [MAL Affinity Explorer](https://slopggobblercobbler81.github.io/mal-affinity-explorer/).
+1. Open the [MAL Affinity Explorer](https://slopgobblercobbler.github.io/mal-affinity-explorer/).
 2. Enter your MAL username (e.g. `Xinil`).
 3. Select how many users ($N$) to evaluate (15, 30, 60, 120).
 4. Click **Find Soulmates**!
@@ -50,7 +50,7 @@ If you prefer running locally without setting up any external proxies:
 
 ```bash
 # Clone the repository
-git clone https://github.com/slopggobblercobbler81/mal-affinity-explorer.git
+git clone https://github.com/slopgobblercobbler/mal-affinity-explorer.git
 cd mal-affinity-explorer
 
 # Start the local server (pure Python standard library - no pip install needed!)
