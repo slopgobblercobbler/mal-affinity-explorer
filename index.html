@@ -129,31 +129,80 @@
                 </div>
 
                 <!-- Advanced & Source Options Accordion -->
-                <details class="group border border-slate-800 rounded-xl bg-slate-950/40 p-4 transition">
+                <details class="group border border-slate-800 rounded-xl bg-slate-950/40 p-4 transition" open>
                     <summary class="flex items-center justify-between cursor-pointer text-xs font-semibold text-slate-300 select-none">
                         <span class="flex items-center gap-2">
                             <svg class="w-4 h-4 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"></path></svg>
-                            Candidate Discovery Sources & Proxy Settings
+                            Candidate Discovery Channels & Cache Settings
                         </span>
                         <svg class="w-4 h-4 text-slate-500 group-open:rotate-180 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
                     </summary>
 
-                    <div class="mt-4 pt-4 border-t border-slate-800/80 space-y-4 text-xs">
-                        <!-- Sources -->
+                    <div class="mt-4 pt-4 border-t border-slate-800/80 space-y-5 text-xs">
+                        <!-- Discovery Sources -->
                         <div>
-                            <span class="block font-semibold text-slate-300 mb-2">Discovery Channels:</span>
-                            <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                                <label class="flex items-center gap-2 p-2.5 rounded-lg border border-slate-800 bg-slate-900/60 cursor-pointer hover:border-slate-700">
+                            <div class="flex items-center justify-between mb-2">
+                                <span class="font-semibold text-slate-200 flex items-center gap-1.5">
+                                    <span>🌐</span> Discovery Channels (Where to find candidate soulmates):
+                                </span>
+                                <span class="text-[11px] text-slate-500">Select one or more channels to scrape</span>
+                            </div>
+                            <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-2.5">
+                                <label class="flex items-center gap-2.5 p-2.5 rounded-lg border border-slate-800 bg-slate-900/60 cursor-pointer hover:border-slate-700 transition">
                                     <input type="checkbox" id="check-friends" checked class="rounded border-slate-700 text-blue-600 focus:ring-blue-500">
-                                    <span class="text-slate-300">Your Friends List</span>
+                                    <div>
+                                        <div class="font-medium text-slate-200">Friends List</div>
+                                        <div class="text-[10px] text-slate-400">Direct user friends</div>
+                                    </div>
                                 </label>
-                                <label class="flex items-center gap-2 p-2.5 rounded-lg border border-slate-800 bg-slate-900/60 cursor-pointer hover:border-slate-700">
+                                <label class="flex items-center gap-2.5 p-2.5 rounded-lg border border-slate-800 bg-slate-900/60 cursor-pointer hover:border-slate-700 transition">
+                                    <input type="checkbox" id="check-fof" checked class="rounded border-slate-700 text-blue-600 focus:ring-blue-500">
+                                    <div>
+                                        <div class="font-medium text-slate-200">Friends-of-Friends</div>
+                                        <div class="text-[10px] text-slate-400">2nd-degree social network</div>
+                                    </div>
+                                </label>
+                                <label class="flex items-center gap-2.5 p-2.5 rounded-lg border border-slate-800 bg-slate-900/60 cursor-pointer hover:border-slate-700 transition">
                                     <input type="checkbox" id="check-top-anime" checked class="rounded border-slate-700 text-blue-600 focus:ring-blue-500">
-                                    <span class="text-slate-300">Fans of Your 9-10/10 Anime</span>
+                                    <div>
+                                        <div class="font-medium text-slate-200">Top Anime Fans</div>
+                                        <div class="text-[10px] text-slate-400">Fans of your 9-10/10 anime</div>
+                                    </div>
                                 </label>
-                                <label class="flex items-center gap-2 p-2.5 rounded-lg border border-slate-800 bg-slate-900/60 cursor-pointer hover:border-slate-700">
+                                <label class="flex items-center gap-2.5 p-2.5 rounded-lg border border-slate-800 bg-slate-900/60 cursor-pointer hover:border-slate-700 transition">
+                                    <input type="checkbox" id="check-seasonal" checked class="rounded border-slate-700 text-blue-600 focus:ring-blue-500">
+                                    <div>
+                                        <div class="font-medium text-slate-200">Seasonal Anime</div>
+                                        <div class="text-[10px] text-slate-400">Current season reviewers</div>
+                                    </div>
+                                </label>
+                                <label class="flex items-center gap-2.5 p-2.5 rounded-lg border border-slate-800 bg-slate-900/60 cursor-pointer hover:border-slate-700 transition">
+                                    <input type="checkbox" id="check-forums" checked class="rounded border-slate-700 text-blue-600 focus:ring-blue-500">
+                                    <div>
+                                        <div class="font-medium text-slate-200">Anime Forums</div>
+                                        <div class="text-[10px] text-slate-400">Recs & series discussions</div>
+                                    </div>
+                                </label>
+                                <label class="flex items-center gap-2.5 p-2.5 rounded-lg border border-slate-800 bg-slate-900/60 cursor-pointer hover:border-slate-700 transition">
+                                    <input type="checkbox" id="check-clubs" checked class="rounded border-slate-700 text-blue-600 focus:ring-blue-500">
+                                    <div>
+                                        <div class="font-medium text-slate-200">Active Clubs</div>
+                                        <div class="text-[10px] text-slate-400">Anime recommendation clubs</div>
+                                    </div>
+                                </label>
+                                <label class="flex items-center gap-2.5 p-2.5 rounded-lg border border-slate-800 bg-slate-900/60 cursor-pointer hover:border-slate-700 transition">
                                     <input type="checkbox" id="check-online" checked class="rounded border-slate-700 text-blue-600 focus:ring-blue-500">
-                                    <span class="text-slate-300">Active Online Users</span>
+                                    <div>
+                                        <div class="font-medium text-slate-200">Online Users</div>
+                                        <div class="text-[10px] text-slate-400">Currently active on MAL</div>
+                                    </div>
+                                </label>
+                                <label class="flex items-center gap-2.5 p-2.5 rounded-lg border border-slate-800 bg-slate-900/60 cursor-pointer hover:border-slate-700 transition">
+                                    <input type="checkbox" id="check-comments" checked class="rounded border-slate-700 text-blue-600 focus:ring-blue-500">
+                                    <div>
+                                        <div class="font-medium text-slate-200">Profile Comments</div>
+                                        <div class="text-[10px] text-slate-400">Guestbook commenters</div>
+                                    </div>
                                 </label>
                             </div>
                         </div>
@@ -161,18 +210,59 @@
                         <!-- Custom Candidates Input -->
                         <div class="space-y-1">
                             <label class="block font-semibold text-slate-300">
-                                Add Custom Usernames (Optional):
+                                Add Custom Candidates (Optional):
                             </label>
                             <input
                                 id="input-custom-candidates"
                                 type="text"
-                                placeholder="Comma or space-separated usernames (e.g. Kineta, Justp94, MickHeal)"
-                                class="w-full bg-slate-900/80 border border-slate-800 rounded-lg p-2.5 text-xs text-white outline-none focus:border-blue-500"
+                                placeholder="Comma or space-separated usernames (e.g. Kineta, Justp94, MickHeal, Xinil)"
+                                class="w-full bg-slate-900/80 border border-slate-800 rounded-lg p-2.5 text-xs text-white outline-none focus:border-blue-500 transition"
                             >
                         </div>
 
+                        <!-- Database & Caching Controls -->
+                        <div class="pt-3 border-t border-slate-800 space-y-3">
+                            <div class="flex flex-wrap items-center justify-between gap-2">
+                                <span class="font-semibold text-slate-200 flex items-center gap-1.5">
+                                    <span>💾</span> Persistence & Caching (Never look up the same user twice):
+                                </span>
+                                <div class="flex items-center gap-2 text-[11px]">
+                                    <button id="btn-export-db" type="button" class="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded transition border border-slate-700/60">
+                                        Export Database (JSON)
+                                    </button>
+                                    <button id="btn-import-db" type="button" class="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded transition border border-slate-700/60">
+                                        Import Database
+                                    </button>
+                                    <input type="file" id="file-import-db" accept=".json" class="hidden">
+                                    <button id="btn-clear-db" type="button" class="px-2.5 py-1 bg-red-900/30 hover:bg-red-800/60 text-red-300 rounded transition border border-red-700/40">
+                                        Clear Cache
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                <label class="flex items-center gap-2 p-2.5 rounded-lg border border-slate-800 bg-slate-900/40 cursor-pointer hover:border-slate-700">
+                                    <input type="checkbox" id="check-skip-evaluated" checked class="rounded border-slate-700 text-blue-600 focus:ring-blue-500">
+                                    <span class="text-slate-300">
+                                        <strong>Skip already evaluated users:</strong> Only discover & query fresh candidates
+                                    </span>
+                                </label>
+                                <label class="flex items-center gap-2 p-2.5 rounded-lg border border-slate-800 bg-slate-900/40 cursor-pointer hover:border-slate-700">
+                                    <input type="checkbox" id="check-preload-cached" checked class="rounded border-slate-700 text-blue-600 focus:ring-blue-500">
+                                    <span class="text-slate-300">
+                                        <strong>Pre-load saved soulmates:</strong> Show accumulated matches from previous scans
+                                    </span>
+                                </label>
+                            </div>
+
+                            <div id="db-status-bar" class="p-2 rounded-lg bg-slate-900/70 border border-slate-800/80 text-[11px] text-slate-400 flex items-center justify-between">
+                                <span id="db-stats-text">Loading local database cache...</span>
+                                <span class="text-emerald-400 font-mono text-[10px]">IndexedDB Active</span>
+                            </div>
+                        </div>
+
                         <!-- Proxy Configuration -->
-                        <div class="pt-2 border-t border-slate-800 space-y-2">
+                        <div class="pt-3 border-t border-slate-800 space-y-2">
                             <div class="flex items-center justify-between">
                                 <span class="font-semibold text-slate-300">CORS Proxy Mode (for MAL API Access):</span>
                                 <button id="btn-test-proxy" type="button" class="text-blue-400 hover:text-blue-300 font-medium underline">

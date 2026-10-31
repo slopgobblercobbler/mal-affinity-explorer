@@ -38,6 +38,7 @@ class UserProfile:
     username: str
     list_type: str = "anime"
     entries: Dict[int, AnimeEntry] = field(default_factory=dict)
+    is_private: bool = False
 
     @property
     def scored_entries(self) -> Dict[int, AnimeEntry]:

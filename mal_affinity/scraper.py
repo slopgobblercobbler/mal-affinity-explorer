@@ -79,7 +79,7 @@ class MALScraper:
     ) -> Optional[UserProfile]:
         """
         Fetches full anime or manga list for a username using MAL's load.json endpoint.
-        Returns None if user does not exist or list is private.
+        Returns None if user does not exist or list is private. Caches results to prevent re-lookups.
         """
         username = username.strip()
         if not username:
@@ -89,6 +89,8 @@ class MALScraper:
         if not force_refresh:
             cached = self.db.get_user_profile(username, list_type=list_type)
             if cached is not None:
+                if getattr(cached, "is_private", False):
+                    return None  # already known to be private/invalid
                 return cached
 
         profile = UserProfile(username=username, list_type=list_type)
@@ -100,18 +102,25 @@ class MALScraper:
             resp = self._get_with_retry(url, is_json=True)
 
             if resp is None:
+                # Connection or network failure, do not permanently mark private
                 return None
 
             if resp.status_code in (400, 404):
-                # Private list or not found
+                # Private list or user does not exist: remember so we don't look up again!
+                self.db.mark_user_private_or_invalid(username, list_type=list_type)
                 return None
 
             try:
                 data = resp.json()
             except ValueError:
+                self.db.mark_user_private_or_invalid(username, list_type=list_type)
                 return None
 
             if not isinstance(data, list) or len(data) == 0:
+                if offset == 0:
+                    # User has an empty list
+                    self.db.mark_user_private_or_invalid(username, list_type=list_type)
+                    return None
                 break
 
             for item in data:
@@ -222,27 +231,60 @@ class MALScraper:
         self.db.add_candidates(users, source="online_users")
         return users
 
-    def discover_from_forum(self, board_ids: Optional[List[int]] = None) -> List[str]:
-        """Scrapes active users from MAL forum boards."""
-        board_ids = board_ids or [1, 2, 3]  # Anime Series Discussion, Manga, General
+    def discover_from_friends_of_friends(self, username: str, max_friends: int = 5, max_fof: int = 200) -> List[str]:
+        """
+        Discovers 2nd-degree social network users (friends of the user's friends).
+        High affinity yield as friends of friends often share taste niches.
+        """
+        friends = self.discover_from_friends(username, max_friends=max_friends)
         discovered: Set[str] = set()
 
-        for bid in board_ids:
-            url = f"{self.BASE_URL}/forum/?board={bid}"
+        for friend in friends:
+            if len(discovered) >= max_fof:
+                break
+            url = f"{self.BASE_URL}/profile/{quote(friend)}/friends"
             resp = self._get_with_retry(url)
             if resp and resp.status_code == 200:
                 found = re.findall(r'/profile/([a-zA-Z0-9_-]+)', resp.text)
-                discovered.update(
-                    u for u in found if u.lower() not in SYSTEM_EXCLUDED_USERNAMES
-                )
+                for u in found:
+                    if (
+                        u.lower() != username.lower()
+                        and u.lower() != friend.lower()
+                        and u.lower() not in SYSTEM_EXCLUDED_USERNAMES
+                    ):
+                        discovered.add(u)
 
-        users = list(discovered)
-        self.db.add_candidates(users, source="forum")
-        return users
+        fof_list = list(discovered)[:max_fof]
+        self.db.add_candidates(fof_list, source=f"fof:{username}")
+        return fof_list
 
-    def discover_from_club(self, club_id: int) -> List[str]:
-        """Scrapes members of a MAL club."""
-        url = f"{self.BASE_URL}/clubs.php?cid={club_id}&action=members"
+    def discover_from_seasonal(self, max_anime: int = 5, max_users: int = 150) -> List[str]:
+        """
+        Scrapes reviewers and recommenders of current seasonal airing anime.
+        Discovers currently active anime watchers.
+        """
+        discovered: Set[str] = set()
+        url = f"{self.BASE_URL}/anime/season"
+        resp = self._get_with_retry(url)
+        if not resp or resp.status_code != 200:
+            return []
+
+        anime_ids = list(dict.fromkeys(re.findall(r'/anime/(\d+)/', resp.text)))[:max_anime]
+        for aid in anime_ids:
+            if len(discovered) >= max_users:
+                break
+            users = self.discover_from_anime_recs_and_reviews(int(aid), max_users=max_users // len(anime_ids) + 15)
+            discovered.update(users)
+
+        seasonal_list = list(discovered)[:max_users]
+        self.db.add_candidates(seasonal_list, source="seasonal")
+        return seasonal_list
+
+    def discover_from_profile_comments(self, username: str, max_users: int = 60) -> List[str]:
+        """
+        Scrapes users who left comments on the target user's profile guestbook.
+        """
+        url = f"{self.BASE_URL}/profile/{quote(username)}"
         resp = self._get_with_retry(url)
         if not resp or resp.status_code != 200:
             return []
@@ -250,7 +292,53 @@ class MALScraper:
         found = re.findall(r'/profile/([a-zA-Z0-9_-]+)', resp.text)
         users = [
             u for u in set(found)
-            if u.lower() not in SYSTEM_EXCLUDED_USERNAMES
-        ]
-        self.db.add_candidates(users, source=f"club:{club_id}")
+            if u.lower() != username.lower() and u.lower() not in SYSTEM_EXCLUDED_USERNAMES
+        ][:max_users]
+        self.db.add_candidates(users, source=f"comments:{username}")
+        return users
+
+    def discover_from_forum(self, board_ids: Optional[List[int]] = None, max_users: int = 150) -> List[str]:
+        """
+        Scrapes active users from MAL forum boards.
+        Default boards: 16 (Recommendations), 1 (Anime Series), 4 (Current Anime).
+        """
+        board_ids = board_ids or [16, 1, 4]
+        discovered: Set[str] = set()
+
+        for bid in board_ids:
+            if len(discovered) >= max_users:
+                break
+            url = f"{self.BASE_URL}/forum/?board={bid}"
+            resp = self._get_with_retry(url)
+            if resp and resp.status_code == 200:
+                found = re.findall(r'/profile/([a-zA-Z0-9_-]+)', resp.text)
+                for u in found:
+                    if u.lower() not in SYSTEM_EXCLUDED_USERNAMES:
+                        discovered.add(u)
+
+        users = list(discovered)[:max_users]
+        self.db.add_candidates(users, source="forum")
+        return users
+
+    def discover_from_clubs(self, club_ids: Optional[List[int]] = None, max_users: int = 150) -> List[str]:
+        """
+        Scrapes members of prominent active MAL clubs.
+        Defaults: 1 (MAL Club), 77 (Recommendation Club), 3538 (Anime Brotherhood).
+        """
+        club_ids = club_ids or [1, 77, 3538]
+        discovered: Set[str] = set()
+
+        for cid in club_ids:
+            if len(discovered) >= max_users:
+                break
+            url = f"{self.BASE_URL}/clubs.php?cid={cid}&action=members"
+            resp = self._get_with_retry(url)
+            if resp and resp.status_code == 200:
+                found = re.findall(r'/profile/([a-zA-Z0-9_-]+)', resp.text)
+                for u in found:
+                    if u.lower() not in SYSTEM_EXCLUDED_USERNAMES:
+                        discovered.add(u)
+
+        users = list(discovered)[:max_users]
+        self.db.add_candidates(users, source="clubs")
         return users

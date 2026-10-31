@@ -13,19 +13,30 @@ Includes both a **GitHub Pages Single-Page Application (SPA)** and a **Python CL
 ## ✨ Features
 
 - **🌐 GitHub Pages Ready**: Zero build steps required (`index.html` + `app.js` + `style.css`). Deploy directly to GitHub Pages with the included GitHub Actions workflow.
+- **💾 Full Persistence & Zero Redundant Lookups**:
+  - **IndexedDB in Browser**: Every scraped user profile and computed affinity comparison is saved directly in your browser's local database.
+  - **Skip Already Evaluated**: Remembers previously evaluated users so subsequent scans only discover and request *new* candidates, preventing wasted network calls.
+  - **Private / Invalid User Caching**: Remembers private lists and 404s to avoid querying them repeatedly.
+  - **Pre-load Soulmates**: Automatically displays accumulated soulmates from previous sessions as soon as you type your username.
+  - **Database Management**: Export database to JSON, import backups, or clear cache anytime.
+- **🔍 8 Multi-Channel Candidate Discovery Sources**:
+  1. **Direct Friends**: Your direct friends list (`/profile/{u}/friends`).
+  2. **Friends-of-Friends (2nd-Degree Network)**: Friends of your friends, surfacing shared subculture niches.
+  3. **Top Anime Fans (Taste Twins)**: Users who reviewed or recommended your 9/10 and 10/10 rated anime.
+  4. **Seasonal Airing Anime**: Active reviewers of the current season's top airing shows.
+  5. **Anime & Rec Forums**: Active posters from Board 16 (Recommendations), Board 1 (Series), and Board 4 (Current).
+  6. **Active Anime Clubs**: Members of recommendation and fan clubs (e.g. Club 1, Club 77, Club 3538).
+  7. **Online / Active Users**: Members currently browsing MAL (`/users.php`).
+  8. **Profile Wall Commenters**: Users leaving comments on your and friends' profile guestbooks.
+  9. **Custom Candidates**: Paste any custom comma- or space-separated list of usernames.
 - **📐 Mathematical Precision**: Implements the official Pearson correlation coefficient ($r \times 100\%$) across mutually rated anime ($score > 0$).
 - **⚖️ Weighted Affinity (Bayesian Smoothing)**: Applies shrinkage ($k = 15$) so a fluke match with 2 shared anime won't outrank someone with 85% affinity across 200 shared anime.
-- **🔍 Multi-Channel Candidate Discovery**:
-  - **Friends Network**: Scrapes your friends list.
-  - **Taste Twins**: Scrapes users who reviewed or recommended your 9/10 and 10/10 rated anime.
-  - **Online / Active Users**: Discovers currently active members on MAL.
-  - **Custom Usernames**: Evaluate any custom list of candidates.
 - **🎯 Deep Taste Breakdown**:
   - **Mutual Favorites**: Anime both users rated 8–10.
   - **Score Disagreements**: Anime where ratings differed significantly ($\Delta \ge 2$).
   - **Personalized Recommendations**: Top anime the candidate rated 9–10 that you haven't watched yet!
 - **⚡ Multiple Proxy Options**: Built-in support for a 1-click Cloudflare Worker proxy, local Python server proxy, or direct browser extension mode.
-- **📊 Export Options**: One-click export of rankings to **JSON** and **CSV**.
+- **📊 Export Options**: Export rankings to **JSON** and **CSV**, or export the entire offline SQLite / IndexedDB database.
 
 ---
 
@@ -73,11 +84,20 @@ For terminal power users, a high-performance Python CLI is included:
 # Install CLI dependencies
 pip install -r requirements.txt
 
-# Find top affinity users for your profile
+# Find top affinity users (uses all 8 discovery channels by default)
 python mal_affinity_cli.py find --user YourUsername -n 30 -m 10
+
+# Target specific discovery sources
+python mal_affinity_cli.py find --user YourUsername -n 30 --sources fof,seasonal,forums,clubs
 
 # Compare two specific users in depth
 python mal_affinity_cli.py compare --user YourUsername --candidate TargetUser
+
+# View offline SQLite database cache statistics
+python mal_affinity_cli.py stats
+
+# Clear database cache
+python mal_affinity_cli.py clear
 
 # Export results to JSON or CSV
 python mal_affinity_cli.py find --user YourUsername -n 50 --json results.json --csv results.csv
@@ -87,12 +107,14 @@ python mal_affinity_cli.py find --user YourUsername -n 50 --json results.json --
 | Flag | Description | Default |
 |------|-------------|---------|
 | `--user`, `-u` | Your MyAnimeList username (required) | — |
-| `--max-users`, `-n` | Maximum candidates to evaluate | `30` |
+| `--max-users`, `-n` | Maximum new candidates to evaluate | `30` |
 | `--min-shared`, `-m` | Minimum mutually rated anime to display | `10` |
-| `--sources` | Discovery channels: `friends,top-anime,online` | all |
+| `--sources` | Discovery channels: `friends,fof,top-anime,seasonal,forums,clubs,online,comments` | all 8 |
+| `--skip-scanned` / `--no-skip-scanned` | Skip already evaluated users to prevent duplicate lookups | `True` |
+| `--load-cached` / `--no-load-cached` | Pre-load previously evaluated soulmates from SQLite | `True` |
 | `--sort` | Sort order: `weighted`, `affinity`, `shared`, `diff` | `weighted` |
 | `--delay` | Politeness delay between requests (seconds) | `0.4` |
-| `--refresh` | Bypass SQLite cache and force re-fetch | `False` |
+| `--refresh` | Bypass cache and force re-fetch | `False` |
 
 ---
 

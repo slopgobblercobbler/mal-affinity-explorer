@@ -25,6 +25,7 @@ class MALDatabase:
                     list_type TEXT,
                     entries_json TEXT,
                     scored_count INTEGER,
+                    is_private INTEGER DEFAULT 0,
                     updated_at REAL,
                     PRIMARY KEY (username, list_type)
                 )
@@ -55,6 +56,12 @@ class MALDatabase:
                     PRIMARY KEY (target_user, candidate_user)
                 )
             """)
+            # Migration check: ensure is_private column exists in user_lists
+            cursor.execute("PRAGMA table_info(user_lists)")
+            columns = [col[1] for col in cursor.fetchall()]
+            if "is_private" not in columns:
+                cursor.execute("ALTER TABLE user_lists ADD COLUMN is_private INTEGER DEFAULT 0")
+
             conn.commit()
 
     def get_user_profile(
@@ -65,7 +72,7 @@ class MALDatabase:
         with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
-                "SELECT entries_json, updated_at FROM user_lists WHERE LOWER(username) = ? AND list_type = ?",
+                "SELECT entries_json, scored_count, is_private, updated_at FROM user_lists WHERE LOWER(username) = ? AND list_type = ?",
                 (username_clean, list_type),
             )
             row = cursor.fetchone()
@@ -74,32 +81,106 @@ class MALDatabase:
             if row["updated_at"] < cutoff:
                 return None  # expired
 
-            raw_entries = json.loads(row["entries_json"])
+            # If user had a private list or was not found
+            if row["is_private"] == 1:
+                profile = UserProfile(username=username, list_type=list_type)
+                profile.is_private = True
+                return profile
+
+            raw_entries = json.loads(row["entries_json"] or "[]")
             profile = UserProfile(username=username, list_type=list_type)
             for item in raw_entries:
                 entry = AnimeEntry.from_dict(item)
                 profile.entries[entry.anime_id] = entry
             return profile
 
-    def save_user_profile(self, profile: UserProfile):
+    def save_user_profile(self, profile: UserProfile, is_private: bool = False):
         username_clean = profile.username.strip()
         entries_data = [e.to_dict() for e in profile.entries.values()]
         entries_json = json.dumps(entries_data)
+        now = time.time()
+        is_private_int = 1 if is_private else 0
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                INSERT INTO user_lists (username, list_type, entries_json, scored_count, is_private, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(username, list_type) DO UPDATE SET
+                    entries_json = excluded.entries_json,
+                    scored_count = excluded.scored_count,
+                    is_private = excluded.is_private,
+                    updated_at = excluded.updated_at
+                """,
+                (username_clean, profile.list_type, entries_json, profile.scored_count, is_private_int, now),
+            )
+            # Migration check: ensure is_private column exists in user_lists
+            cursor.execute("PRAGMA table_info(user_lists)")
+            columns = [col[1] for col in cursor.fetchall()]
+            if "is_private" not in columns:
+                cursor.execute("ALTER TABLE user_lists ADD COLUMN is_private INTEGER DEFAULT 0")
+
+            conn.commit()
+
+    def mark_user_private_or_invalid(self, username: str, list_type: str = "anime"):
+        """Caches private / not found status so we never make useless requests to them again."""
+        username_clean = username.strip()
         now = time.time()
         with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
                 """
-                INSERT INTO user_lists (username, list_type, entries_json, scored_count, updated_at)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO user_lists (username, list_type, entries_json, scored_count, is_private, updated_at)
+                VALUES (?, ?, '[]', 0, 1, ?)
                 ON CONFLICT(username, list_type) DO UPDATE SET
-                    entries_json = excluded.entries_json,
-                    scored_count = excluded.scored_count,
+                    entries_json = '[]',
+                    scored_count = 0,
+                    is_private = 1,
                     updated_at = excluded.updated_at
                 """,
-                (username_clean, profile.list_type, entries_json, profile.scored_count, now),
+                (username_clean, list_type, now),
             )
+            cursor.execute(
+                "UPDATE candidate_queue SET scanned = 1, error_msg = 'private_or_invalid' WHERE LOWER(username) = ?",
+                (username_clean.lower(),),
+            )
+            # Migration check: ensure is_private column exists in user_lists
+            cursor.execute("PRAGMA table_info(user_lists)")
+            columns = [col[1] for col in cursor.fetchall()]
+            if "is_private" not in columns:
+                cursor.execute("ALTER TABLE user_lists ADD COLUMN is_private INTEGER DEFAULT 0")
+
             conn.commit()
+
+    def get_evaluated_candidates(self, target_user: str) -> set:
+        """Returns set of all candidate usernames already evaluated against target_user."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT LOWER(candidate_user) as c_user FROM affinity_cache WHERE LOWER(target_user) = ?",
+                (target_user.strip().lower(),),
+            )
+            rows = cursor.fetchall()
+            return {row["c_user"] for row in rows}
+
+    def get_database_stats(self) -> Dict[str, int]:
+        """Returns summary statistics of cached data."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT COUNT(*) FROM user_lists WHERE is_private = 0")
+            profiles_count = cursor.fetchone()[0]
+            cursor.execute("SELECT COUNT(*) FROM user_lists WHERE is_private = 1")
+            private_count = cursor.fetchone()[0]
+            cursor.execute("SELECT COUNT(*) FROM affinity_cache")
+            affinities_count = cursor.fetchone()[0]
+            cursor.execute("SELECT COUNT(*) FROM candidate_queue")
+            candidates_count = cursor.fetchone()[0]
+            return {
+                "valid_profiles": profiles_count,
+                "private_profiles": private_count,
+                "affinities": affinities_count,
+                "queued_candidates": candidates_count,
+            }
 
     def add_candidates(self, candidates: List[str], source: str = "general") -> int:
         now = time.time()
@@ -123,6 +204,12 @@ class MALDatabase:
                         added += 1
                 except sqlite3.Error:
                     pass
+            # Migration check: ensure is_private column exists in user_lists
+            cursor.execute("PRAGMA table_info(user_lists)")
+            columns = [col[1] for col in cursor.fetchall()]
+            if "is_private" not in columns:
+                cursor.execute("ALTER TABLE user_lists ADD COLUMN is_private INTEGER DEFAULT 0")
+
             conn.commit()
         return added
 
@@ -143,6 +230,12 @@ class MALDatabase:
                 "UPDATE candidate_queue SET scanned = 1, error_msg = ? WHERE LOWER(username) = ?",
                 (error_msg, username.strip().lower()),
             )
+            # Migration check: ensure is_private column exists in user_lists
+            cursor.execute("PRAGMA table_info(user_lists)")
+            columns = [col[1] for col in cursor.fetchall()]
+            if "is_private" not in columns:
+                cursor.execute("ALTER TABLE user_lists ADD COLUMN is_private INTEGER DEFAULT 0")
+
             conn.commit()
 
     def save_affinity_result(self, result: AffinityResult):
@@ -175,6 +268,12 @@ class MALDatabase:
                     now,
                 ),
             )
+            # Migration check: ensure is_private column exists in user_lists
+            cursor.execute("PRAGMA table_info(user_lists)")
+            columns = [col[1] for col in cursor.fetchall()]
+            if "is_private" not in columns:
+                cursor.execute("ALTER TABLE user_lists ADD COLUMN is_private INTEGER DEFAULT 0")
+
             conn.commit()
 
     def get_top_affinities(
@@ -228,4 +327,10 @@ class MALDatabase:
             cursor.execute("DELETE FROM user_lists")
             cursor.execute("DELETE FROM candidate_queue")
             cursor.execute("DELETE FROM affinity_cache")
+            # Migration check: ensure is_private column exists in user_lists
+            cursor.execute("PRAGMA table_info(user_lists)")
+            columns = [col[1] for col in cursor.fetchall()]
+            if "is_private" not in columns:
+                cursor.execute("ALTER TABLE user_lists ADD COLUMN is_private INTEGER DEFAULT 0")
+
             conn.commit()

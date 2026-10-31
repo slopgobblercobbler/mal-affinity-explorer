@@ -68,3 +68,39 @@ def test_database_caching(tmp_path):
     assert loaded.username == "TestUser"
     assert 101 in loaded.entries
     assert loaded.entries[101].score == 9
+
+
+def test_database_private_caching(tmp_path):
+    db_file = str(tmp_path / "test_private.db")
+    db = MALDatabase(db_file)
+
+    # Mark user as private / not found
+    db.mark_user_private_or_invalid("PrivateUser")
+
+    cached = db.get_user_profile("PrivateUser")
+    assert cached is not None
+    assert cached.is_private is True
+
+    stats = db.get_database_stats()
+    assert stats["private_profiles"] == 1
+    assert stats["valid_profiles"] == 0
+
+
+def test_database_evaluated_candidates(tmp_path):
+    db_file = str(tmp_path / "test_eval.db")
+    db = MALDatabase(db_file)
+
+    p1 = UserProfile(username="UserA")
+    p1.entries[1] = AnimeEntry(anime_id=1, title="Show 1", score=10)
+    p1.entries[2] = AnimeEntry(anime_id=2, title="Show 2", score=8)
+
+    p2 = UserProfile(username="UserB")
+    p2.entries[1] = AnimeEntry(anime_id=1, title="Show 1", score=9)
+    p2.entries[2] = AnimeEntry(anime_id=2, title="Show 2", score=8)
+
+    res = compute_affinity(p1, p2, min_shared=1)
+    db.save_affinity_result(res)
+
+    evaluated = db.get_evaluated_candidates("UserA")
+    assert "userb" in evaluated
+    assert "userc" not in evaluated
