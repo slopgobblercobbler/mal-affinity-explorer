@@ -93,65 +93,83 @@ def handle_find(args):
         already_evaluated = db.get_evaluated_candidates(target_user)
 
     # Step 2: Discover candidate users from multiple channels
-    candidates: List[str] = []
+    candidate_set = set()
     if args.candidates:
-        candidates.extend([c.strip() for c in args.candidates.split(",") if c.strip()])
+        for c in args.candidates.split(","):
+            c_clean = c.strip()
+            if c_clean and c_clean.lower() != target_user.lower():
+                if not args.skip_scanned or c_clean.lower() not in already_evaluated:
+                    candidate_set.add(c_clean)
 
     sources = [s.strip().lower() for s in args.sources.split(",") if s.strip()]
 
+    def is_valid_candidate(u: str) -> bool:
+        u_clean = u.strip()
+        u_lower = u_clean.lower()
+        if not u_clean or u_lower == target_user.lower():
+            return False
+        if args.skip_scanned and u_lower in already_evaluated:
+            return False
+        if u_clean in candidate_set:
+            return False
+        return True
+
     with console.status("[yellow]Discovering fresh candidate users...[/yellow]"):
         # 1. Direct Friends
-        if "friends" in sources and len(candidates) < args.max_users:
-            friends = scraper.discover_from_friends(target_user, max_friends=args.max_users)
-            candidates.extend(friends)
+        if "friends" in sources and len(candidate_set) < args.max_users:
+            needed = args.max_users - len(candidate_set)
+            friends = scraper.discover_from_friends(target_user, max_friends=needed, is_valid_fn=is_valid_candidate)
+            candidate_set.update(friends)
 
         # 2. Friends of Friends (2nd-degree network)
-        if "fof" in sources and len(candidates) < args.max_users:
-            fof = scraper.discover_from_friends_of_friends(target_user, max_friends=5, max_fof=args.max_users)
-            candidates.extend(fof)
+        if "fof" in sources and len(candidate_set) < args.max_users:
+            needed = args.max_users - len(candidate_set)
+            fof = scraper.discover_from_friends_of_friends(target_user, max_friends=15, max_fof=needed, is_valid_fn=is_valid_candidate)
+            candidate_set.update(fof)
 
         # 3. Fans & Reviewers of Top Anime
-        if "top-anime" in sources and len(candidates) < args.max_users:
-            fans = scraper.discover_from_top_anime(target_profile, top_n_anime=5, max_per_anime=50)
-            candidates.extend(fans)
+        if "top-anime" in sources and len(candidate_set) < args.max_users:
+            needed = args.max_users - len(candidate_set)
+            fans = scraper.discover_from_top_anime(target_profile, max_users=needed, is_valid_fn=is_valid_candidate)
+            candidate_set.update(fans)
 
         # 4. Seasonal Airing Anime Reviewers
-        if "seasonal" in sources and len(candidates) < args.max_users:
-            seasonal = scraper.discover_from_seasonal(max_anime=5, max_users=args.max_users)
-            candidates.extend(seasonal)
+        if "seasonal" in sources and len(candidate_set) < args.max_users:
+            needed = args.max_users - len(candidate_set)
+            seasonal = scraper.discover_from_seasonal(max_users=needed, is_valid_fn=is_valid_candidate)
+            candidate_set.update(seasonal)
 
         # 5. Recommendation & Discussion Forums
-        if "forums" in sources and len(candidates) < args.max_users:
-            forum_users = scraper.discover_from_forum(board_ids=[16, 1, 4], max_users=args.max_users)
-            candidates.extend(forum_users)
+        if "forums" in sources and len(candidate_set) < args.max_users:
+            needed = args.max_users - len(candidate_set)
+            forum_users = scraper.discover_from_forum(board_ids=[16, 1, 4, 7, 3], max_users=needed, is_valid_fn=is_valid_candidate)
+            candidate_set.update(forum_users)
 
         # 6. Anime Clubs
-        if "clubs" in sources and len(candidates) < args.max_users:
-            club_users = scraper.discover_from_clubs(club_ids=[1, 77, 3538], max_users=args.max_users)
-            candidates.extend(club_users)
+        if "clubs" in sources and len(candidate_set) < args.max_users:
+            needed = args.max_users - len(candidate_set)
+            club_users = scraper.discover_from_clubs(club_ids=[1, 77, 3538, 169, 66], max_users=needed, is_valid_fn=is_valid_candidate)
+            candidate_set.update(club_users)
 
         # 7. Online / Active Users
-        if "online" in sources and len(candidates) < args.max_users:
+        if "online" in sources and len(candidate_set) < args.max_users:
             online = scraper.discover_from_online_users()
-            candidates.extend(online)
+            for u in online:
+                if is_valid_candidate(u):
+                    candidate_set.add(u)
+                    if len(candidate_set) >= args.max_users:
+                        break
 
         # 8. Profile Comments
-        if "comments" in sources and len(candidates) < args.max_users:
+        if "comments" in sources and len(candidate_set) < args.max_users:
             commenters = scraper.discover_from_profile_comments(target_user, max_users=50)
-            candidates.extend(commenters)
+            for u in commenters:
+                if is_valid_candidate(u):
+                    candidate_set.add(u)
+                    if len(candidate_set) >= args.max_users:
+                        break
 
-    # Filter out self, duplicates, and already evaluated if skip_scanned is active
-    unique_candidates = []
-    for c in dict.fromkeys(candidates):
-        c_clean = c.strip()
-        c_lower = c_clean.lower()
-        if c_lower == target_user.lower():
-            continue
-        if args.skip_scanned and c_lower in already_evaluated:
-            continue
-        unique_candidates.append(c_clean)
-        if len(unique_candidates) >= args.max_users:
-            break
+    unique_candidates = list(candidate_set)[:args.max_users]
 
     if not unique_candidates:
         if results_map:

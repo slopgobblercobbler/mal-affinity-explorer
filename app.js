@@ -210,8 +210,8 @@ const state = {
     isRunning: false,
     settings: {
         minShared: 10,
-        maxCandidates: 30,
-        requestDelay: 400, // ms between requests
+        maxCandidates: 120,
+        requestDelay: 350, // ms between requests
         proxyUrl: 'local', // 'local', 'custom', 'direct'
         customProxyUrl: '',
         sortBy: 'weighted', // 'weighted', 'affinity', 'shared', 'diff'
@@ -407,36 +407,37 @@ async function fetchUserAnimeList(username, onProgress = null, forceRefresh = fa
 }
 
 // ==========================================
-// Candidate Discovery Channels
+// Candidate Discovery Engine (Deep Paginated)
 // ==========================================
 
 /**
- * 1. Direct Friends
+ * 1. Direct Friends (Paginates offset=0, 100, 200...)
  */
-async function discoverFriends(username, maxFriends = 100) {
+async function discoverFriendsPaginated(username, neededCount, isValidFn) {
     const candidates = new Set();
     let offset = 0;
 
-    while (candidates.size < maxFriends && state.isRunning) {
+    while (candidates.size < neededCount && state.isRunning) {
         const url = `https://myanimelist.net/profile/${encodeURIComponent(username)}/friends?offset=${offset}`;
         try {
             const html = await fetchWithProxy(url, false);
             if (!html) break;
 
             const matches = [...html.matchAll(/\/profile\/([a-zA-Z0-9_-]+)/g)];
-            let newFound = 0;
+            if (matches.length === 0) break;
+
+            let newInBatch = 0;
             for (const m of matches) {
                 const u = m[1];
-                if (u.toLowerCase() !== username.toLowerCase() && !EXCLUDED_USERNAMES.has(u.toLowerCase())) {
-                    if (!candidates.has(u)) {
-                        candidates.add(u);
-                        newFound++;
-                    }
+                if (isValidFn(u)) {
+                    candidates.add(u);
+                    newInBatch++;
+                    if (candidates.size >= neededCount) break;
                 }
             }
 
             offset += 100;
-            if (newFound < 10) break;
+            if (matches.length < 30) break; // End of friends list
             await sleep(state.settings.requestDelay);
         } catch (e) {
             break;
@@ -447,34 +448,39 @@ async function discoverFriends(username, maxFriends = 100) {
 }
 
 /**
- * 2. Friends-of-Friends (2nd-degree social network)
+ * 2. Friends-of-Friends (Crawls multiple friends and paginates their friend lists)
  */
-async function discoverFriendsOfFriends(username, maxDirectFriends = 4, maxFof = 80) {
-    const directFriends = await discoverFriends(username, maxDirectFriends);
+async function discoverFriendsOfFriendsPaginated(username, neededCount, isValidFn) {
     const candidates = new Set();
+    // Get up to 25 direct friends to crawl
+    const directFriends = await discoverFriendsPaginated(username, 25, () => true);
 
     for (const friend of directFriends) {
-        if (!state.isRunning || candidates.size >= maxFof) break;
-        const url = `https://myanimelist.net/profile/${encodeURIComponent(friend)}/friends`;
-        try {
-            const html = await fetchWithProxy(url, false);
-            if (html) {
+        if (!state.isRunning || candidates.size >= neededCount) break;
+        let offset = 0;
+
+        while (offset <= 100 && state.isRunning && candidates.size < neededCount) {
+            const url = `https://myanimelist.net/profile/${encodeURIComponent(friend)}/friends?offset=${offset}`;
+            try {
+                const html = await fetchWithProxy(url, false);
+                if (!html) break;
+
                 const matches = [...html.matchAll(/\/profile\/([a-zA-Z0-9_-]+)/g)];
+                if (matches.length === 0) break;
+
                 for (const m of matches) {
                     const u = m[1];
-                    if (
-                        u.toLowerCase() !== username.toLowerCase() &&
-                        u.toLowerCase() !== friend.toLowerCase() &&
-                        !EXCLUDED_USERNAMES.has(u.toLowerCase())
-                    ) {
+                    if (isValidFn(u)) {
                         candidates.add(u);
-                        if (candidates.size >= maxFof) break;
+                        if (candidates.size >= neededCount) break;
                     }
                 }
+
+                offset += 100;
+                await sleep(state.settings.requestDelay);
+            } catch (e) {
+                break;
             }
-            await sleep(state.settings.requestDelay);
-        } catch (e) {
-            // continue next friend
         }
     }
 
@@ -482,21 +488,20 @@ async function discoverFriendsOfFriends(username, maxDirectFriends = 4, maxFof =
 }
 
 /**
- * 3. Fans & Reviewers of User's Top Rated Anime (9-10/10)
+ * 3. Fans & Reviewers of User's Top Rated Anime (Paginates recs and reviews across top anime)
  */
-async function discoverFromTopAnime(targetList, maxPerAnime = 40) {
-    const topAnime = Array.from(targetList.values())
-        .filter(a => a.score >= 9)
-        .sort((a, b) => b.score - a.score)
-        .slice(0, 5);
-
+async function discoverFromTopAnimePaginated(targetList, neededCount, isValidFn) {
     const candidates = new Set();
+    // Collect all anime rated >= 8, sorted by score descending
+    const topAnime = Array.from(targetList.values())
+        .filter(a => a.score >= 8)
+        .sort((a, b) => b.score - a.score);
 
     for (const anime of topAnime) {
-        if (!state.isRunning) break;
+        if (!state.isRunning || candidates.size >= neededCount) break;
         const slug = anime.title.replace(/[^a-zA-Z0-9_]+/g, '_') || 'anime';
 
-        // User Recommendations
+        // 1. Recs page
         const recsUrl = `https://myanimelist.net/anime/${anime.id}/${encodeURIComponent(slug)}/userrecs`;
         try {
             const html = await fetchWithProxy(recsUrl, false);
@@ -504,67 +509,75 @@ async function discoverFromTopAnime(targetList, maxPerAnime = 40) {
                 const matches = [...html.matchAll(/\/profile\/([a-zA-Z0-9_-]+)/g)];
                 for (const m of matches) {
                     const u = m[1];
-                    if (!EXCLUDED_USERNAMES.has(u.toLowerCase()) && u.toLowerCase() !== state.targetUser.toLowerCase()) {
+                    if (isValidFn(u)) {
                         candidates.add(u);
-                        if (candidates.size >= 120) break;
+                        if (candidates.size >= neededCount) break;
                     }
                 }
             }
-        } catch (e) {
-            console.warn('Error fetching recs:', e);
-        }
+            await sleep(state.settings.requestDelay);
+        } catch (e) {}
 
-        // Reviews
-        if (candidates.size < 120) {
-            const revUrl = `https://myanimelist.net/anime/${anime.id}/${encodeURIComponent(slug)}/reviews`;
+        // 2. Reviews pages (p=1, 2, 3...)
+        let reviewPage = 1;
+        while (reviewPage <= 3 && state.isRunning && candidates.size < neededCount) {
+            const revUrl = `https://myanimelist.net/anime/${anime.id}/${encodeURIComponent(slug)}/reviews?p=${reviewPage}`;
             try {
                 const html = await fetchWithProxy(revUrl, false);
-                if (html) {
-                    const matches = [...html.matchAll(/\/profile\/([a-zA-Z0-9_-]+)/g)];
-                    for (const m of matches) {
-                        const u = m[1];
-                        if (!EXCLUDED_USERNAMES.has(u.toLowerCase()) && u.toLowerCase() !== state.targetUser.toLowerCase()) {
-                            candidates.add(u);
-                        }
+                if (!html) break;
+
+                const matches = [...html.matchAll(/\/profile\/([a-zA-Z0-9_-]+)/g)];
+                if (matches.length === 0) break;
+
+                for (const m of matches) {
+                    const u = m[1];
+                    if (isValidFn(u)) {
+                        candidates.add(u);
+                        if (candidates.size >= neededCount) break;
                     }
                 }
+                reviewPage++;
+                await sleep(state.settings.requestDelay);
             } catch (e) {
-                // ignore
+                break;
             }
         }
-
-        await sleep(state.settings.requestDelay);
     }
 
     return Array.from(candidates);
 }
 
 /**
- * 4. Current Seasonal Airing Anime Reviewers
+ * 4. Current Seasonal Airing Anime Reviewers (Loops through seasonal anime list & reviews)
  */
-async function discoverFromSeasonal(maxAnime = 3, maxUsers = 60) {
+async function discoverFromSeasonalPaginated(neededCount, isValidFn) {
     const candidates = new Set();
     const url = 'https://myanimelist.net/anime/season';
     try {
         const html = await fetchWithProxy(url, false);
         if (!html) return [];
 
-        const animeIds = [...new Set([...html.matchAll(/\/anime\/(\d+)\//g)].map(m => m[1]))].slice(0, maxAnime);
+        const animeIds = [...new Set([...html.matchAll(/\/anime\/(\d+)\//g)].map(m => m[1]))];
         for (const aid of animeIds) {
-            if (!state.isRunning || candidates.size >= maxUsers) break;
-            const revUrl = `https://myanimelist.net/anime/${aid}/_/reviews`;
-            const revHtml = await fetchWithProxy(revUrl, false);
-            if (revHtml) {
+            if (!state.isRunning || candidates.size >= neededCount) break;
+            for (let p = 1; p <= 2; p++) {
+                if (candidates.size >= neededCount) break;
+                const revUrl = `https://myanimelist.net/anime/${aid}/_/reviews?p=${p}`;
+                const revHtml = await fetchWithProxy(revUrl, false);
+                if (!revHtml) break;
+
                 const matches = [...revHtml.matchAll(/\/profile\/([a-zA-Z0-9_-]+)/g)];
+                if (matches.length === 0) break;
+
                 for (const m of matches) {
                     const u = m[1];
-                    if (!EXCLUDED_USERNAMES.has(u.toLowerCase()) && u.toLowerCase() !== state.targetUser.toLowerCase()) {
+                    if (isValidFn(u)) {
                         candidates.add(u);
-                        if (candidates.size >= maxUsers) break;
+                        if (candidates.size >= neededCount) break;
                     }
                 }
+                await sleep(state.settings.requestDelay);
             }
-            await sleep(state.settings.requestDelay);
         }
     } catch (e) {
         console.warn('Error fetching seasonal:', e);
@@ -573,56 +586,74 @@ async function discoverFromSeasonal(maxAnime = 3, maxUsers = 60) {
 }
 
 /**
- * 5. Anime Forums (Recommendations, Series, Current Anime)
+ * 5. Anime Forums (Paginates show=0, 50, 100, 150 across major discussion boards)
  */
-async function discoverFromForums(boardIds = [16, 1, 4], maxUsers = 70) {
+async function discoverFromForumsPaginated(neededCount, isValidFn) {
     const candidates = new Set();
-    for (const bid of boardIds) {
-        if (!state.isRunning || candidates.size >= maxUsers) break;
-        const url = `https://myanimelist.net/forum/?board=${bid}`;
-        try {
-            const html = await fetchWithProxy(url, false);
-            if (html) {
+    const boards = [16, 1, 4, 7, 3, 2]; // Recs, Series, Current, Casual, General, Manga
+
+    for (const bid of boards) {
+        if (!state.isRunning || candidates.size >= neededCount) break;
+        let show = 0;
+
+        while (show <= 200 && state.isRunning && candidates.size < neededCount) {
+            const url = `https://myanimelist.net/forum/?board=${bid}&show=${show}`;
+            try {
+                const html = await fetchWithProxy(url, false);
+                if (!html) break;
+
                 const matches = [...html.matchAll(/\/profile\/([a-zA-Z0-9_-]+)/g)];
+                if (matches.length === 0) break;
+
                 for (const m of matches) {
                     const u = m[1];
-                    if (!EXCLUDED_USERNAMES.has(u.toLowerCase()) && u.toLowerCase() !== state.targetUser.toLowerCase()) {
+                    if (isValidFn(u)) {
                         candidates.add(u);
-                        if (candidates.size >= maxUsers) break;
+                        if (candidates.size >= neededCount) break;
                     }
                 }
+                show += 50;
+                await sleep(state.settings.requestDelay);
+            } catch (e) {
+                break;
             }
-            await sleep(state.settings.requestDelay);
-        } catch (e) {
-            // ignore
         }
     }
     return Array.from(candidates);
 }
 
 /**
- * 6. Active Anime Clubs
+ * 6. Active Anime Clubs (Paginates member pages p=1, 2, 3... across prominent clubs)
  */
-async function discoverFromClubs(clubIds = [1, 77, 3538], maxUsers = 70) {
+async function discoverFromClubsPaginated(neededCount, isValidFn) {
     const candidates = new Set();
+    const clubIds = [1, 77, 3538, 169, 66, 420, 203, 199];
+
     for (const cid of clubIds) {
-        if (!state.isRunning || candidates.size >= maxUsers) break;
-        const url = `https://myanimelist.net/clubs.php?cid=${cid}&action=members`;
-        try {
-            const html = await fetchWithProxy(url, false);
-            if (html) {
+        if (!state.isRunning || candidates.size >= neededCount) break;
+        let p = 1;
+
+        while (p <= 8 && state.isRunning && candidates.size < neededCount) {
+            const url = `https://myanimelist.net/clubs.php?cid=${cid}&action=members&p=${p}`;
+            try {
+                const html = await fetchWithProxy(url, false);
+                if (!html) break;
+
                 const matches = [...html.matchAll(/\/profile\/([a-zA-Z0-9_-]+)/g)];
+                if (matches.length === 0) break;
+
                 for (const m of matches) {
                     const u = m[1];
-                    if (!EXCLUDED_USERNAMES.has(u.toLowerCase()) && u.toLowerCase() !== state.targetUser.toLowerCase()) {
+                    if (isValidFn(u)) {
                         candidates.add(u);
-                        if (candidates.size >= maxUsers) break;
+                        if (candidates.size >= neededCount) break;
                     }
                 }
+                p++;
+                await sleep(state.settings.requestDelay);
+            } catch (e) {
+                break;
             }
-            await sleep(state.settings.requestDelay);
-        } catch (e) {
-            // ignore
         }
     }
     return Array.from(candidates);
@@ -631,7 +662,7 @@ async function discoverFromClubs(clubIds = [1, 77, 3538], maxUsers = 70) {
 /**
  * 7. Currently Online Users
  */
-async function discoverOnlineUsers() {
+async function discoverOnlineUsersPaginated(neededCount, isValidFn) {
     const candidates = new Set();
     const url = 'https://myanimelist.net/users.php';
     try {
@@ -640,8 +671,9 @@ async function discoverOnlineUsers() {
             const matches = [...html.matchAll(/\/profile\/([a-zA-Z0-9_-]+)/g)];
             for (const m of matches) {
                 const u = m[1];
-                if (!EXCLUDED_USERNAMES.has(u.toLowerCase()) && u.toLowerCase() !== state.targetUser.toLowerCase()) {
+                if (isValidFn(u)) {
                     candidates.add(u);
+                    if (candidates.size >= neededCount) break;
                 }
             }
         }
@@ -654,7 +686,7 @@ async function discoverOnlineUsers() {
 /**
  * 8. Profile Wall Commenters
  */
-async function discoverFromComments(username, maxUsers = 50) {
+async function discoverFromCommentsPaginated(username, neededCount, isValidFn) {
     const candidates = new Set();
     const url = `https://myanimelist.net/profile/${encodeURIComponent(username)}`;
     try {
@@ -663,9 +695,9 @@ async function discoverFromComments(username, maxUsers = 50) {
             const matches = [...html.matchAll(/\/profile\/([a-zA-Z0-9_-]+)/g)];
             for (const m of matches) {
                 const u = m[1];
-                if (!EXCLUDED_USERNAMES.has(u.toLowerCase()) && u.toLowerCase() !== username.toLowerCase()) {
+                if (isValidFn(u)) {
                     candidates.add(u);
-                    if (candidates.size >= maxUsers) break;
+                    if (candidates.size >= neededCount) break;
                 }
             }
         }
@@ -673,6 +705,109 @@ async function discoverFromComments(username, maxUsers = 50) {
         console.warn('Error fetching comments:', e);
     }
     return Array.from(candidates);
+}
+
+/**
+ * Master Discovery Orchestrator
+ * Paginates and digs deep through enabled channels to gather exactly targetN fresh candidates.
+ */
+async function gatherFreshCandidates(username, targetList, targetN, alreadyEvaluated) {
+    const candidateSet = new Set();
+
+    const isValid = (u) => {
+        const uClean = u.trim();
+        const uLower = uClean.toLowerCase();
+        if (!uClean || uLower === username.toLowerCase() || EXCLUDED_USERNAMES.has(uLower)) return false;
+        if (alreadyEvaluated.has(uLower)) return false; // Never look up already evaluated users!
+        if (candidateSet.has(uClean)) return false;
+        return true;
+    };
+
+    const updateStatus = (channelName) => {
+        const pct = 20 + Math.round((candidateSet.size / targetN) * 30);
+        setStatus(`Discovering candidates via ${channelName} (${candidateSet.size}/${targetN} fresh users found)...`, pct);
+    };
+
+    // 0. Custom manual candidates if provided
+    const customCandidatesText = document.getElementById('input-custom-candidates').value.trim();
+    if (customCandidatesText) {
+        const list = customCandidatesText.split(/[\s,]+/).map(s => s.trim()).filter(Boolean);
+        list.forEach(u => {
+            if (isValid(u)) candidateSet.add(u);
+        });
+    }
+
+    // 1. Direct Friends
+    if (document.getElementById('check-friends').checked && candidateSet.size < targetN) {
+        updateStatus('Friends List');
+        const list = await discoverFriendsPaginated(username, targetN - candidateSet.size, isValid);
+        list.forEach(u => candidateSet.add(u));
+    }
+
+    // 2. Friends of Friends (2nd-degree)
+    if (document.getElementById('check-fof').checked && candidateSet.size < targetN) {
+        updateStatus('Friends-of-Friends');
+        const list = await discoverFriendsOfFriendsPaginated(username, targetN - candidateSet.size, isValid);
+        list.forEach(u => candidateSet.add(u));
+    }
+
+    // 3. Top Anime Fans (Recs & Reviews)
+    if (document.getElementById('check-top-anime').checked && candidateSet.size < targetN) {
+        updateStatus('Top Anime Fans');
+        const list = await discoverFromTopAnimePaginated(targetList, targetN - candidateSet.size, isValid);
+        list.forEach(u => candidateSet.add(u));
+    }
+
+    // 4. Seasonal Airing Anime Reviewers
+    if (document.getElementById('check-seasonal').checked && candidateSet.size < targetN) {
+        updateStatus('Seasonal Anime Reviewers');
+        const list = await discoverFromSeasonalPaginated(targetN - candidateSet.size, isValid);
+        list.forEach(u => candidateSet.add(u));
+    }
+
+    // 5. Anime & Rec Forums (Paginates show=0, 50, 100...)
+    if (document.getElementById('check-forums').checked && candidateSet.size < targetN) {
+        updateStatus('Anime Forums');
+        const list = await discoverFromForumsPaginated(targetN - candidateSet.size, isValid);
+        list.forEach(u => candidateSet.add(u));
+    }
+
+    // 6. Active Anime Clubs (Paginates member pages)
+    if (document.getElementById('check-clubs').checked && candidateSet.size < targetN) {
+        updateStatus('Anime Clubs');
+        const list = await discoverFromClubsPaginated(targetN - candidateSet.size, isValid);
+        list.forEach(u => candidateSet.add(u));
+    }
+
+    // 7. Online Active Users
+    if (document.getElementById('check-online').checked && candidateSet.size < targetN) {
+        updateStatus('Active Online Users');
+        const list = await discoverOnlineUsersPaginated(targetN - candidateSet.size, isValid);
+        list.forEach(u => candidateSet.add(u));
+    }
+
+    // 8. Profile Comments
+    if (document.getElementById('check-comments').checked && candidateSet.size < targetN) {
+        updateStatus('Profile Commenters');
+        const list = await discoverFromCommentsPaginated(username, targetN - candidateSet.size, isValid);
+        list.forEach(u => candidateSet.add(u));
+    }
+
+    // Extra pass on Forums & Clubs if targetN is large (e.g. 250+) and we still need more
+    if (candidateSet.size < targetN && state.isRunning) {
+        if (document.getElementById('check-forums').checked) {
+            updateStatus('Deep Forum Boards');
+            const moreForums = await discoverFromForumsPaginated(targetN - candidateSet.size, isValid);
+            moreForums.forEach(u => candidateSet.add(u));
+        }
+        if (candidateSet.size < targetN && document.getElementById('check-clubs').checked) {
+            updateStatus('Deep Club Directories');
+            const moreClubs = await discoverFromClubsPaginated(targetN - candidateSet.size, isValid);
+            moreClubs.forEach(u => candidateSet.add(u));
+        }
+    }
+
+    return Array.from(candidateSet).slice(0, targetN);
 }
 
 /**
@@ -799,13 +934,32 @@ async function initUI() {
     const stopBtn = document.getElementById('btn-stop');
     const usernameInput = document.getElementById('input-username');
     const testProxyBtn = document.getElementById('btn-test-proxy');
+    const maxUsersInput = document.getElementById('input-max-users');
 
     scanBtn.addEventListener('click', startScan);
     stopBtn.addEventListener('click', stopScan);
     testProxyBtn.addEventListener('click', testProxyConnection);
 
+    // Preset buttons for custom amount
+    document.querySelectorAll('.btn-preset').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            const val = e.currentTarget.getAttribute('data-val');
+            maxUsersInput.value = val;
+            updateScanButtonLabel();
+            document.querySelectorAll('.btn-preset').forEach(b => {
+                b.classList.remove('bg-blue-900/50', 'text-blue-200', 'border-blue-700/60', 'font-bold');
+                b.classList.add('bg-slate-800', 'text-slate-300', 'border-slate-700/70');
+            });
+            e.currentTarget.classList.remove('bg-slate-800', 'text-slate-300', 'border-slate-700/70');
+            e.currentTarget.classList.add('bg-blue-900/50', 'text-blue-200', 'border-blue-700/60', 'font-bold');
+        });
+    });
+
+    maxUsersInput.addEventListener('input', updateScanButtonLabel);
+
     // Username change: auto pre-load cached soulmates
     usernameInput.addEventListener('change', onUsernameChanged);
+    usernameInput.addEventListener('input', updateScanButtonLabel);
 
     // Filter controls
     document.getElementById('select-sort').addEventListener('change', updateTable);
@@ -831,6 +985,20 @@ async function initUI() {
     // Modal close
     document.getElementById('modal-close').addEventListener('click', closeModal);
     document.getElementById('modal-backdrop').addEventListener('click', closeModal);
+
+    updateScanButtonLabel();
+}
+
+function updateScanButtonLabel() {
+    const inputVal = parseInt(document.getElementById('input-max-users').value, 10) || 120;
+    const btnText = document.getElementById('btn-scan-text');
+    if (!btnText) return;
+
+    if (state.results && state.results.length > 0) {
+        btnText.textContent = `Find More Soulmates (+${inputVal})`;
+    } else {
+        btnText.textContent = `Find Soulmates (${inputVal})`;
+    }
 }
 
 async function onUsernameChanged() {
@@ -847,6 +1015,7 @@ async function onUsernameChanged() {
             setStatus(`Loaded ${cached.length} previously saved soulmates from your local database!`);
         }
     }
+    updateScanButtonLabel();
     await updateDatabaseStatsUI();
 }
 
@@ -905,6 +1074,7 @@ async function clearDatabase() {
     await storage.clearAll();
     state.results = [];
     updateTable();
+    updateScanButtonLabel();
     await updateDatabaseStatsUI();
     alert('Local database cleared!');
 }
@@ -965,8 +1135,10 @@ async function startScan() {
     state.isRunning = true;
     state.candidates = [];
 
-    // Read UI configuration
-    state.settings.maxCandidates = parseInt(document.getElementById('input-max-users').value, 10) || 30;
+    // Read custom amount of candidates to scan
+    const rawCount = parseInt(document.getElementById('input-max-users').value, 10);
+    const targetN = Math.max(1, Math.min(3000, isNaN(rawCount) ? 120 : rawCount));
+    state.settings.maxCandidates = targetN;
     state.settings.minShared = parseInt(document.getElementById('input-min-shared').value, 10) || 10;
     state.settings.customProxyUrl = document.getElementById('input-custom-proxy').value.trim();
 
@@ -1008,88 +1180,15 @@ async function startScan() {
 
         state.targetList = targetList;
         const scoredCount = Array.from(targetList.values()).filter(a => a.score > 0).length;
-        setStatus(`Loaded @${username}'s list (${scoredCount} scored anime). Discovering fresh candidate users...`, 20);
+        setStatus(`Loaded @${username}'s list (${scoredCount} scored anime). Discovering ${targetN} fresh candidates...`, 20);
 
-        // Step 2: Multi-Source Candidate Discovery
-        const candidateSet = new Set();
-
-        const addCandidateIfValid = (u) => {
-            const uClean = u.trim();
-            const uLower = uClean.toLowerCase();
-            if (!uClean || uLower === username.toLowerCase() || EXCLUDED_USERNAMES.has(uLower)) return;
-            if (skipEvaluated && alreadyEvaluated.has(uLower)) return; // Never look up already evaluated users!
-            candidateSet.add(uClean);
-        };
-
-        // Custom candidates
-        const customCandidatesText = document.getElementById('input-custom-candidates').value.trim();
-        if (customCandidatesText) {
-            const list = customCandidatesText.split(/[\s,]+/).map(s => s.trim()).filter(Boolean);
-            list.forEach(addCandidateIfValid);
-        }
-
-        // 1. Direct Friends
-        if (document.getElementById('check-friends').checked && candidateSet.size < state.settings.maxCandidates) {
-            setStatus('Searching friends list for candidates...', 25);
-            const friends = await discoverFriends(username, 60);
-            friends.forEach(addCandidateIfValid);
-        }
-
-        // 2. Friends-of-Friends (2nd degree)
-        if (document.getElementById('check-fof').checked && candidateSet.size < state.settings.maxCandidates) {
-            setStatus('Searching friends-of-friends (2nd-degree network)...', 30);
-            const fof = await discoverFriendsOfFriends(username, 4, 60);
-            fof.forEach(addCandidateIfValid);
-        }
-
-        // 3. Top Anime Fans (9-10/10)
-        if (document.getElementById('check-top-anime').checked && candidateSet.size < state.settings.maxCandidates) {
-            setStatus('Searching reviewers of your top-rated anime...', 35);
-            const topFans = await discoverFromTopAnime(targetList, 50);
-            topFans.forEach(addCandidateIfValid);
-        }
-
-        // 4. Seasonal Anime Reviewers
-        if (document.getElementById('check-seasonal').checked && candidateSet.size < state.settings.maxCandidates) {
-            setStatus('Searching current seasonal anime reviewers...', 40);
-            const seasonal = await discoverFromSeasonal(3, 50);
-            seasonal.forEach(addCandidateIfValid);
-        }
-
-        // 5. Anime Forums (Recs & Series)
-        if (document.getElementById('check-forums').checked && candidateSet.size < state.settings.maxCandidates) {
-            setStatus('Searching active recommendation forum posters...', 43);
-            const forumUsers = await discoverFromForums([16, 1, 4], 60);
-            forumUsers.forEach(addCandidateIfValid);
-        }
-
-        // 6. Active Anime Clubs
-        if (document.getElementById('check-clubs').checked && candidateSet.size < state.settings.maxCandidates) {
-            setStatus('Searching active anime recommendation clubs...', 46);
-            const clubUsers = await discoverFromClubs([1, 77, 3538], 60);
-            clubUsers.forEach(addCandidateIfValid);
-        }
-
-        // 7. Online Users
-        if (document.getElementById('check-online').checked && candidateSet.size < state.settings.maxCandidates) {
-            setStatus('Checking currently active online MAL users...', 48);
-            const onlineUsers = await discoverOnlineUsers();
-            onlineUsers.forEach(addCandidateIfValid);
-        }
-
-        // 8. Profile Comments
-        if (document.getElementById('check-comments').checked && candidateSet.size < state.settings.maxCandidates) {
-            setStatus('Checking profile wall commenters...', 49);
-            const commentUsers = await discoverFromComments(username, 40);
-            commentUsers.forEach(addCandidateIfValid);
-        }
-
-        const candidateList = Array.from(candidateSet).slice(0, state.settings.maxCandidates);
+        // Step 2: Multi-Source Deep Paginated Candidate Discovery
+        const candidateList = await gatherFreshCandidates(username, targetList, targetN, alreadyEvaluated);
         state.candidates = candidateList;
 
         if (candidateList.length === 0) {
             if (state.results.length > 0) {
-                setStatus(`No new unscanned candidates found in selected sources. Displaying ${state.results.length} previously saved soulmates.`, 100);
+                setStatus(`All candidates in selected sources have already been evaluated! Showing ${state.results.length} saved soulmates. Enable more sources to find even more.`, 100);
             } else {
                 setStatus('No candidate users found to evaluate. Try selecting more discovery channels.', 100);
             }
@@ -1135,12 +1234,14 @@ async function startScan() {
         }
 
         await updateDatabaseStatsUI();
-        setStatus(`Scan complete! Evaluated ${processed} candidates. Showing ${state.results.length} total soulmates with shared scores.`, 100);
+        updateScanButtonLabel();
+        setStatus(`Scan complete! Evaluated ${processed} fresh candidates. Leaderboard now has ${state.results.length} total soulmates with shared scores.`, 100);
     } catch (err) {
         console.error(err);
         setStatus(`Error during scan: ${err.message}`, 100);
     } finally {
         stopScan();
+        updateScanButtonLabel();
     }
 }
 
@@ -1148,6 +1249,7 @@ function stopScan() {
     state.isRunning = false;
     document.getElementById('btn-scan').classList.remove('hidden');
     document.getElementById('btn-stop').classList.add('hidden');
+    updateScanButtonLabel();
 }
 
 /**
